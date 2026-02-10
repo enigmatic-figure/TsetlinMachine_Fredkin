@@ -76,7 +76,7 @@ cdef class TsetlinMachine:
 				self.clause_sign[j] = -1
 
 
-	# Calculate the output of each clause using the actions of each Tsetline Automaton.
+	# Calculate the output of each clause using the actions of each Tsetlin Automaton.
 	# Output is stored an internal output array.
 	cdef void calculate_clause_output(self, int[:] X):
 		cdef int j, k
@@ -127,7 +127,7 @@ cdef class TsetlinMachine:
 	def get_state(self, int clause, int feature, int automaton_type):
 		return self.ta_state[clause,feature,automaton_type]
 
-	# Sum up the votes for each output decision (y=0 or y = 1)
+	# Sum up the votes for each output decision (y=0 or y=1)
 	cdef int sum_up_clause_votes(self):
 		cdef int output_sum
 		cdef int j
