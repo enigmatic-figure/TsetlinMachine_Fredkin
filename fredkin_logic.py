@@ -1,12 +1,4 @@
 #!/usr/bin/env python
-"""Pure-Python Fredkin (controlled-swap) gate simulation utilities.
-
-The Verilog files in this repository are hardware reference material only.  The
-Python demos and library code should use this module when they need Fredkin gate
-behavior at runtime, avoiding any dependency on HDL tools or generated HDL
-artifacts.
-"""
-
 
 def _as_bit(value, name):
     """Return *value* as a binary integer, rejecting non-bit inputs."""
