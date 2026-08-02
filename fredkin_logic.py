@@ -1,43 +1,23 @@
 #!/usr/bin/env python
+"""Pure-Python Fredkin (controlled-swap) gate simulation utilities.
 
-def _as_bit(value, name):
-    """Return *value* as a binary integer, rejecting non-bit inputs."""
-    if value in (0, 1, False, True):
-        return int(value)
-    raise ValueError("%s must be a binary value (0/1 or bool), got %r" % (name, value))
+This module provides universal Fredkin gate logic and logic synthesis helpers.
+It supports both CSWAP (swap_when=1) and Toffoli/Fredkin paper (swap_when=0) conventions.
+"""
 
-
-def fredkin_gate(control, input_a, input_b):
-    """Simulate a Fredkin gate with Python boolean logic.
-
-    A Fredkin gate passes the control bit through unchanged. When control is 0,
-    the two data inputs pass through unchanged; when control is 1, the two data
-    inputs are swapped.
-
-    Args:
-        control: Control bit (0/1 or bool).
-        input_a: First data bit (0/1 or bool).
-        input_b: Second data bit (0/1 or bool).
-
-    Returns:
-        A tuple ``(control_out, output_a, output_b)`` of integer bits.
-    """
-    control_bit = _as_bit(control, "control")
-    a_bit = _as_bit(input_a, "input_a")
-    b_bit = _as_bit(input_b, "input_b")
-
-    if control_bit:
-        return control_bit, b_bit, a_bit
-    return control_bit, a_bit, b_bit
-
-
-FREDKIN_TRUTH_TABLE = tuple(
-    (control, input_a, input_b) + fredkin_gate(control, input_a, input_b)
-    for control in (0, 1)
-    for input_a in (0, 1)
-    for input_b in (0, 1)
+from fredkin import (
+    as_bit as _as_bit,
+    fredkin_gate,
+    fredkin_gate_array,
+    fredkin_truth_table,
+    fredkin_gate_paper,
+    fredkin_and,
+    fredkin_not,
+    fredkin_fanout,
+    fredkin_literal_condition,
 )
 
+FREDKIN_TRUTH_TABLE = fredkin_truth_table(swap_when=1)
 
 if __name__ == "__main__":
     for row in FREDKIN_TRUTH_TABLE:

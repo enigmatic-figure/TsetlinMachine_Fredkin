@@ -53,11 +53,24 @@ cdef class MultiClassTsetlinMachine:
 	cdef int threshold
 
 	cdef int boost_true_positive_feedback
+	cdef int clauses_per_class
 	
 	# Initialization of the Tsetlin Machine
 	def __init__(self, number_of_classes, number_of_clauses, number_of_features, number_of_states, s, threshold, boost_true_positive_feedback = 0):
-		cdef int[:] target_indexes
-		cdef int c,i,j,m
+		cdef int i, j
+
+		if number_of_classes <= 0:
+			raise ValueError("number_of_classes must be > 0")
+		if number_of_clauses <= 0:
+			raise ValueError("number_of_clauses must be > 0")
+		if number_of_features <= 0:
+			raise ValueError("number_of_features must be > 0")
+		if number_of_states <= 0:
+			raise ValueError("number_of_states must be > 0")
+		if threshold <= 0:
+			raise ValueError("threshold must be > 0")
+		if number_of_clauses % number_of_classes != 0:
+			raise ValueError("number_of_clauses must be divisible by number_of_classes")
 
 		self.number_of_classes = number_of_classes
 		self.number_of_clauses = number_of_clauses
@@ -66,23 +79,29 @@ cdef class MultiClassTsetlinMachine:
 		self.s = s
 		self.threshold = threshold
 		self.boost_true_positive_feedback = boost_true_positive_feedback
+		self.clauses_per_class = self.number_of_clauses // self.number_of_classes
 
-		# The state of each Tsetlin Automaton is stored here. The automata are randomly initialized to either 'number_of_states' or 'number_of_states' + 1.
-		self.ta_state = np.random.choice([self.number_of_states, self.number_of_states+1], size=(self.number_of_clauses, self.number_of_features, 2)).astype(dtype=np.int32)
+		# The state of each Tsetlin Automaton is stored here.
+		self.ta_state = np.random.randint(
+			low=self.number_of_states,
+			high=self.number_of_states + 2,
+			size=(self.number_of_clauses, self.number_of_features, 2),
+			dtype=np.int32
+		)
 
 		# Data structures for keeping track of which clause refers to which class, and the sign of the clause
 		self.clause_count = np.zeros((self.number_of_classes,), dtype=np.int32)
-		self.clause_sign = np.zeros((self.number_of_classes, self.number_of_clauses/self.number_of_classes, 2), dtype=np.int32)
+		self.clause_sign = np.zeros((self.number_of_classes, self.clauses_per_class, 2), dtype=np.int32)
 		
-		# Data structures for intermediate calculations (clause output, summation of votes, and feedback to clauses)
+		# Data structures for intermediate calculations
 		self.clause_output = np.zeros(shape=(self.number_of_clauses,), dtype=np.int32)
 		self.class_sum = np.zeros(shape=(self.number_of_classes,), dtype=np.int32)
-		self.feedback_to_clauses = np.zeros(shape=(self.number_of_clauses), dtype=np.int32)
+		self.feedback_to_clauses = np.zeros(shape=(self.number_of_clauses,), dtype=np.int32)
 
 		# Set up the Tsetlin Machine structure
-		for i in xrange(self.number_of_classes):
-			for j in xrange(self.number_of_clauses / self.number_of_classes):
-				self.clause_sign[i,self.clause_count[i],0] = i*(self.number_of_clauses/self.number_of_classes) + j
+		for i in range(self.number_of_classes):
+			for j in range(self.clauses_per_class):
+				self.clause_sign[i, self.clause_count[i], 0] = i * self.clauses_per_class + j
 				if j % 2 == 0:
 					self.clause_sign[i, self.clause_count[i], 1] = 1
 				else:
@@ -90,17 +109,15 @@ cdef class MultiClassTsetlinMachine:
 
 				self.clause_count[i] += 1
 
-	# Calculate the output of each clause using the actions of each Tsetline Automaton.
-	# Output is stored an internal output array.
 	cdef void calculate_clause_output(self, int[:] X, int predict=0):
-		cdef int j,k
+		cdef int j, k
 		cdef int action_include, action_include_negated
 		cdef int all_exclude
 
-		for j in xrange(self.number_of_clauses):				
+		for j in range(self.number_of_clauses):				
 			self.clause_output[j] = 1
 			all_exclude = 1
-			for k in xrange(self.number_of_features):
+			for k in range(self.number_of_features):
 				action_include = self.action(self.ta_state[j,k,0])
 				action_include_negated = self.action(self.ta_state[j,k,1])
 
@@ -114,103 +131,61 @@ cdef class MultiClassTsetlinMachine:
 			if predict == 1 and all_exclude == 1:
 				self.clause_output[j] = 0
 
-	# Sum up the votes for each class (this is the multiclass version of the Tsetlin Machine)
 	cdef void sum_up_class_votes(self):
 		cdef int target_class
 		cdef int j
 
-		for target_class in xrange(self.number_of_classes):
+		for target_class in range(self.number_of_classes):
 			self.class_sum[target_class] = 0
 
-			for j in xrange(self.clause_count[target_class]):
-				self.class_sum[target_class] += self.clause_output[self.clause_sign[target_class,j,0]]*self.clause_sign[target_class,j,1]
+			for j in range(self.clause_count[target_class]):
+				self.class_sum[target_class] += self.clause_output[self.clause_sign[target_class,j,0]] * self.clause_sign[target_class,j,1]
 			
 			if self.class_sum[target_class] > self.threshold:
 				self.class_sum[target_class] = self.threshold
 			elif self.class_sum[target_class] < -self.threshold:
 				self.class_sum[target_class] = -self.threshold
 
-	########################################
-	### Predict Target Class for Input X ###
-	########################################
-
 	def predict(self, int[:] X):
 		cdef int target_class
 		cdef int max_class
 		cdef float max_class_sum
 		
-		###############################
-		### Calculate Clause Output ###
-		###############################
-
 		self.calculate_clause_output(X, predict=1)
-
-		###########################
-		### Sum up Clause Votes ###
-		###########################
-
 		self.sum_up_class_votes()
 
-		##########################################
-		### Identify Class with Largest Output ###
-		##########################################
-		
 		max_class_sum = self.class_sum[0]
 		max_class = 0
-		for target_class in xrange(1, self.number_of_classes):				
+		for target_class in range(1, self.number_of_classes):				
 			if max_class_sum < self.class_sum[target_class]:
 				max_class_sum = self.class_sum[target_class]
 				max_class = target_class
 			
 		return max_class
 
-	# Translates automata state to action 
 	cdef int action(self, int state):
 		if state <= self.number_of_states:
 			return 0
 		else:
 			return 1
 
-	# Get the state of a specific automaton, indexed by clause, feature, and automaton type (include/include negated).
 	def get_state(self, int clause, int feature, int automaton_type):
 		return self.ta_state[clause,feature,automaton_type]
-
-	############################################
-	### Evaluate the Trained Tsetlin Machine ###
-	############################################
 
 	def evaluate(self, int[:,:] X, int[:] y, int number_of_examples):	
 		cdef int l, j
 		cdef int errors
 		cdef int max_class
 		cdef float max_class_sum
-		cdef int[:] Xi
-
-		Xi = np.zeros((self.number_of_features,), dtype=np.int32)
 
 		errors = 0
-		for l in xrange(number_of_examples):
-			###############################
-			### Calculate Clause Output ###
-			###############################
-			
-			for j in xrange(self.number_of_features):
-					Xi[j] = X[l,j]
-			self.calculate_clause_output(Xi, predict=1)
-
-			###########################
-			### Sum up Clause Votes ###
-			###########################
-
+		for l in range(number_of_examples):
+			self.calculate_clause_output(X[l], predict=1)
 			self.sum_up_class_votes()
-
-			##########################################
-			### Identify Class with Largest Output ###
-			##########################################
 
 			max_class_sum = self.class_sum[0]
 			max_class = 0
-			for target_class in xrange(1, self.number_of_classes):				
+			for target_class in range(1, self.number_of_classes):				
 				if max_class_sum < self.class_sum[target_class]:
 					max_class_sum = self.class_sum[target_class]
 					max_class = target_class
@@ -220,146 +195,119 @@ cdef class MultiClassTsetlinMachine:
 		
 		return 1.0 - 1.0 * errors / number_of_examples
 
-	##########################################
-	### Online Training of Tsetlin Machine ###
-	##########################################
-
-	# The Tsetlin Machine can be trained incrementally, one training example at a time.
-	# Use this method directly for online and incremental training.
-
 	cpdef void update(self, int[:] X, int target_class):
-		cdef int i, j
+		cdef int i, j, k
 		cdef int negative_target_class
 		cdef int action_include, action_include_negated
+		cdef float v_target, p_target, v_neg, p_neg
+		cdef int min_state = 1
+		cdef int max_state = 2 * self.number_of_states
 
-		# Randomly pick one of the other classes, for pairwise learning of class output 
-		negative_target_class = int(self.number_of_classes * 0.5*rand()/(RAND_MAX/2+1))
-		while negative_target_class == target_class:
-			negative_target_class = int(self.number_of_classes * 0.5*rand()/(RAND_MAX/2+1))
-
-		###############################
-		### Calculate Clause Output ###
-		###############################
+		if self.number_of_classes <= 1:
+			negative_target_class = -1
+		else:
+			negative_target_class = rand() % self.number_of_classes
+			while negative_target_class == target_class:
+				negative_target_class = rand() % self.number_of_classes
 
 		self.calculate_clause_output(X)
-
-		###########################
-		### Sum up Clause Votes ###
-		###########################
-
 		self.sum_up_class_votes()
 
-		#####################################
-		### Calculate Feedback to Clauses ###
-		#####################################
-		
-		# Initialize feedback to clauses
-		for j in xrange(self.number_of_clauses):
+		for j in range(self.number_of_clauses):
 			self.feedback_to_clauses[j] = 0
 
-		# Calculate feedback to clauses
-		for j in xrange(self.clause_count[target_class]):
-			if 1.0*rand()/RAND_MAX > (1.0/(self.threshold*2))*(self.threshold - self.class_sum[target_class]):
+		# Target class feedback probability (clipped)
+		v_target = <float>self.class_sum[target_class]
+		if v_target > self.threshold:
+			v_target = <float>self.threshold
+		elif v_target < -self.threshold:
+			v_target = <float>-self.threshold
+		p_target = (self.threshold - v_target) / (2.0 * self.threshold)
+
+		for j in range(self.clause_count[target_class]):
+			if 1.0 * rand() / RAND_MAX > p_target:
 				continue
 
 			if self.clause_sign[target_class,j,1] >= 0:
-				# Type I Feedback				
 				self.feedback_to_clauses[self.clause_sign[target_class,j,0]] = 1
 			else:
-				# Type II Feedback
 				self.feedback_to_clauses[self.clause_sign[target_class,j,0]] = -1
 
-		for j in xrange(self.clause_count[negative_target_class]):
-			if 1.0*rand()/RAND_MAX > (1.0/(self.threshold*2))*(self.threshold + self.class_sum[negative_target_class]):
-				continue
+		if negative_target_class >= 0:
+			v_neg = <float>self.class_sum[negative_target_class]
+			if v_neg > self.threshold:
+				v_neg = <float>self.threshold
+			elif v_neg < -self.threshold:
+				v_neg = <float>-self.threshold
+			p_neg = (self.threshold + v_neg) / (2.0 * self.threshold)
 
-			if self.clause_sign[negative_target_class,j,1] >= 0:
-				# Type II Feedback
-				self.feedback_to_clauses[self.clause_sign[negative_target_class,j,0]] = -1
-			else:
-				# Type I Feedback
-				self.feedback_to_clauses[self.clause_sign[negative_target_class,j,0]] = 1
-		
-		#################################
-		### Train Invididual Automata ###
-		#################################
+			for j in range(self.clause_count[negative_target_class]):
+				if 1.0 * rand() / RAND_MAX > p_neg:
+					continue
 
-		for j in xrange(self.number_of_clauses):
+				if self.clause_sign[negative_target_class,j,1] >= 0:
+					self.feedback_to_clauses[self.clause_sign[negative_target_class,j,0]] = -1
+				else:
+					self.feedback_to_clauses[self.clause_sign[negative_target_class,j,0]] = 1
+
+		for j in range(self.number_of_clauses):
 			if self.feedback_to_clauses[j] > 0:
-				####################################################
-				### Type I Feedback (Combats False Negatives) ###
-				####################################################
-
 				if self.clause_output[j] == 0:		
-					for k in xrange(self.number_of_features):	
-						if 1.0*rand()/RAND_MAX <= 1.0/self.s:								
-							if self.ta_state[j,k,0] > 1:
+					for k in range(self.number_of_features):	
+						if 1.0 * rand() / RAND_MAX <= 1.0 / self.s:								
+							if self.ta_state[j,k,0] > min_state:
 								self.ta_state[j,k,0] -= 1
 													
-						if 1.0*rand()/RAND_MAX <= 1.0/self.s:
-							if self.ta_state[j,k,1] > 1:
+						if 1.0 * rand() / RAND_MAX <= 1.0 / self.s:
+							if self.ta_state[j,k,1] > min_state:
 								self.ta_state[j,k,1] -= 1
 
 				elif self.clause_output[j] == 1:					
-					for k in xrange(self.number_of_features):
+					for k in range(self.number_of_features):
 						if X[k] == 1:
-							if self.boost_true_positive_feedback == 1 or 1.0*rand()/RAND_MAX <= (self.s-1)/self.s:
-								if self.ta_state[j,k,0] < self.number_of_states*2:
+							if self.boost_true_positive_feedback == 1 or 1.0 * rand() / RAND_MAX <= (self.s - 1.0) / self.s:
+								if self.ta_state[j,k,0] < max_state:
 									self.ta_state[j,k,0] += 1
 
-							if 1.0*rand()/RAND_MAX <= 1.0/self.s:
-								if self.ta_state[j,k,1] > 1:
+							if 1.0 * rand() / RAND_MAX <= 1.0 / self.s:
+								if self.ta_state[j,k,1] > min_state:
 									self.ta_state[j,k,1] -= 1
 
 						elif X[k] == 0:
-							if self.boost_true_positive_feedback == 1 or 1.0*rand()/RAND_MAX <= (self.s-1)/self.s:
-								if self.ta_state[j,k,1] < self.number_of_states*2:
+							if self.boost_true_positive_feedback == 1 or 1.0 * rand() / RAND_MAX <= (self.s - 1.0) / self.s:
+								if self.ta_state[j,k,1] < max_state:
 									self.ta_state[j,k,1] += 1
 
-							if 1.0*rand()/RAND_MAX <= 1.0/self.s:
-								if self.ta_state[j,k,0] > 1:
+							if 1.0 * rand() / RAND_MAX <= 1.0 / self.s:
+								if self.ta_state[j,k,0] > min_state:
 									self.ta_state[j,k,0] -= 1
 			
 			elif self.feedback_to_clauses[j] < 0:
-				#####################################################
-				### Type II Feedback (Combats False Positives) ###
-				#####################################################
 				if self.clause_output[j] == 1:
-					for k in xrange(self.number_of_features):
+					for k in range(self.number_of_features):
 						action_include = self.action(self.ta_state[j,k,0])
 						action_include_negated = self.action(self.ta_state[j,k,1])
 
 						if X[k] == 0:
-							if action_include == 0 and self.ta_state[j,k,0] < self.number_of_states*2:
+							if action_include == 0 and self.ta_state[j,k,0] < max_state:
 								self.ta_state[j,k,0] += 1
 						elif X[k] == 1:
-							if action_include_negated == 0 and self.ta_state[j,k,1] < self.number_of_states*2:
+							if action_include_negated == 0 and self.ta_state[j,k,1] < max_state:
 								self.ta_state[j,k,1] += 1
 
-	##############################################
-	### Batch Mode Training of Tsetlin Machine ###
-	##############################################
-
 	def fit(self, int[:,:] X, int[:] y, int number_of_examples, int epochs=100):
-		cdef int i, j, epoch
+		cdef int i, epoch
 		cdef int example_id
-		cdef int[:] Xi
 		cdef int target_class
 		cdef long[:] random_index
 
-		Xi = np.zeros((self.number_of_features,), dtype=np.int32)
-	
 		random_index = np.arange(number_of_examples)
 
-		for epoch in xrange(epochs):			
+		for epoch in range(epochs):			
 			np.random.shuffle(random_index)
 
-			for i in xrange(number_of_examples):
+			for i in range(number_of_examples):
 				example_id = random_index[i]
 				target_class = y[example_id]
-
-				for j in xrange(self.number_of_features):
-					Xi[j] = X[example_id,j]
-				self.update(Xi, target_class)
+				self.update(X[example_id], target_class)
 		return
-			
