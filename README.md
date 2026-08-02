@@ -17,6 +17,7 @@ Code and datasets for the Tsetlin Machine. Implements the Tsetlin Machine from h
 - [Requirements](#requirements)
 - [Other Implementations](#other-implementations)
 - [Other Architectures](#other-architectures)
+- [Python Fredkin Logic](#python-fredkin-logic)
 - [Hardware](#hardware)
 - [Books](#books)
 - [Conferences](#conferences)
@@ -175,6 +176,19 @@ Prediction: x1 = 1, x2 = 1, ... -> y =  0
 * The Regression Tsetlin Machine, https://github.com/cair/regression-tsetlin-machine
 * Coalesced Multi-Output Tsetlin Machine, https://github.com/cair/PyCoalescedTsetlinMachineCUDA/
 * Massively Parallel and Asynchronous Architecture for Logic-based AI, https://github.com/cair/PyTsetlinMachineCUDA
+
+
+## Python Fredkin Logic
+
+The Verilog files (`fredkin_gate_verilog.v` and `fredkin_gate_tb.v`) are included only as reference material for readers who want to inspect a hardware description of the Fredkin gate. They are not source files for the Python package or demos, and the project does not require a Verilog simulator or any other hardware description language tooling at runtime.
+
+Any Fredkin controlled-swap behavior needed by the Python environment is implemented directly in `fredkin_logic.py` using the original Python/Cython library resources (`numpy`, `pyximport`, `TsetlinMachine.pyx`, and `MultiClassTsetlinMachine.pyx`). The pure-Python helper exposes `fredkin_gate(control, input_a, input_b)`, returning `(control_out, output_a, output_b)`.
+
+```python
+from fredkin_logic import fredkin_gate
+
+print(fredkin_gate(1, 0, 1))  # (1, 1, 0)
+```
 
 ## Hardware
 
